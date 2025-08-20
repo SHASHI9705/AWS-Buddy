@@ -1,0 +1,120 @@
+Day 1 – Setup + Voice Input & Output
+
+✅ Goal: Get voice in (speech → text) and voice out (text → speech).
+
+Tasks
+
+AWS Setup
+
+Create/Log into AWS account.
+
+Create an IAM User with programmatic access (for CLI/SDK).
+
+Install AWS CLI → run aws configure (add keys).
+
+Install Python packages:
+
+pip install boto3 speechrecognition pyaudio
+
+
+Speech-to-Text (AWS Transcribe or local)
+
+Record your voice with Python (speech_recognition library).
+
+Send the audio to Amazon Transcribe → get text.
+
+Print recognized text on screen.
+
+Text-to-Speech (AWS Polly)
+
+Take any text (like “Hello, I am Jarvis”).
+
+Use AWS Polly to convert it to audio.
+
+Play the audio on your system.
+
+👉 End of Day 1: You can talk → Jarvis prints what you said → Jarvis talks back.
+
+Day 2 – Brain & Commands (AWS Lex + Local Actions)
+
+✅ Goal: Give Jarvis a “brain” to understand commands and execute them locally.
+
+Tasks
+
+Set up Amazon Lex (Chatbot)
+
+Create a bot in Amazon Lex.
+
+Add intents like:
+
+OpenApp → sample utterances: “Open Chrome”, “Launch Notepad”
+
+SearchWeb → utterances: “Search YouTube for music”, “Search Google for cats”
+
+Configure Lex to return the intent + slot values.
+
+Connect Lex with Python
+
+Send the transcribed text to Lex using boto3.
+
+Get the intent back (OpenApp, SearchWeb).
+
+Execute Commands Locally
+
+Write a Python function to handle intents:
+
+import os, webbrowser
+
+def execute_command(intent, query=None):
+    if intent == "OpenApp":
+        os.system("start chrome")
+    elif intent == "SearchWeb":
+        webbrowser.open(f"https://www.youtube.com/results?search_query={query}")
+
+
+Test: Say “Search YouTube for cooking videos” → Jarvis opens YouTube with results.
+
+👉 End of Day 2: You speak → Jarvis understands → Jarvis executes action.
+
+Day 3 – Integration + Polish
+
+✅ Goal: Tie everything together into a smooth “Jarvis experience.”
+
+Tasks
+
+Full Pipeline
+🎙️ Speech → Transcribe → Lex → Local Python Script → Polly Reply → 🔊 Speech.
+
+Add Responses
+
+When you give a command, Jarvis should reply via Polly.
+
+Example: “Opening Chrome now, Sir.”
+
+Extra Features (Optional if time)
+
+Add “Wake word” → only listen when you say “Hey Jarvis”.
+
+Add a weather/news API (via AWS Lambda).
+
+Store reminders in DynamoDB.
+
+Make it Resume-Worthy
+
+Create an architecture diagram (showing Transcribe → Lex → Python → Polly).
+
+Push your code to GitHub with README.
+
+Add a demo video (screen recording + your voice).
+
+👉 End of Day 3: You have a working Jarvis that listens, understands, replies, and controls your PC.
+
+🎯 Final Deliverables
+
+✅ Fully working Jarvis-like AI assistant.
+
+✅ GitHub repo with code + README.
+
+✅ Architecture diagram (Lucidchart / draw.io).
+
+✅ (Optional) Short demo video for LinkedIn/resume.
