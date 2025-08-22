@@ -5,7 +5,15 @@ import playsound
 import json
 import os
 from difflib import get_close_matches
-## Removed threading import
+from dotenv import load_dotenv
+
+load_dotenv()
+LEX_BOT_ID = os.getenv("LEX_BOT_ID")
+LEX_BOT_ALIAS_ID = os.getenv("LEX_BOT_ALIAS_ID")
+LEX_REGION = os.getenv("LEX_REGION")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+
 MEMORY_FILE = "memory.json"
 
 def load_memory():
@@ -18,14 +26,50 @@ def save_memory(memory):
     with open(MEMORY_FILE, "w") as f:
         json.dump(memory, f, indent=4)
 
+
 memory = load_memory()
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
+
 # Initialize AWS Polly
-polly = boto3.client("polly", region_name="ap-south-1")
+polly = boto3.client(
+    "polly",
+    region_name="ap-south-1",
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY
+)
+
+# Initialize AWS Lex
+lex_client = boto3.client(
+    "lexv2-runtime",
+    region_name=LEX_REGION,
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY
+)
+
 recognizer = sr.Recognizer()
+def get_lex_response(user_text, session_id="buddy-session"):
+    try:
+        response = lex_client.recognize_text(
+            botId=LEX_BOT_ID,
+            botAliasId=LEX_BOT_ALIAS_ID,
+            localeId="en_US",
+            sessionId=session_id,
+            text=user_text
+        )
+        messages = response.get('messages', [])
+        intent = response.get('sessionState', {}).get('intent', {})
+        slots = intent.get('slots', {})
+        intent_name = intent.get('name', '')
+        return {
+            'reply': messages[0]['content'] if messages else "Sorry, I didn't understand that.",
+            'intent': intent_name,
+            'slots': slots
+        }
+    except Exception as e:
+        return {'reply': f"Lex error: {e}", 'intent': '', 'slots': {}}
 
 def speak_with_polly(text, voice="Matthew"):
     """Convert text to speech using AWS Polly"""
@@ -439,57 +483,9 @@ while True:
             speak_with_polly(reply)
             continue
 
-        # Check for 'open xyz' command (no 'app' required)
-        if text.lower().startswith("open "):
-            import subprocess
-            import os
-            app_name = text.lower().replace("open ", "").strip()
-            # Try default known apps first
-            app_paths = {
-                "notepad": "notepad.exe",
-                "calculator": "calc.exe",
-                "paint": "mspaint.exe",
-                "wordpad": "write.exe",
-                "file explorer": "explorer.exe"
-            }
-            exe = app_paths.get(app_name)
-            if exe:
-                try:
-                    subprocess.Popen(exe)
-                    reply = f"Opening {app_name.capitalize()}!"
-                except Exception as e:
-                    reply = f"Sorry, I couldn't open {app_name}. Error: {e}"
-            else:
-                # Improved Start Menu shortcut search
-                import fnmatch
-                start_menu_dirs = [
-                    r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
-                    os.path.expanduser(r"~\AppData\Roaming\Microsoft\Windows\Start Menu\Programs")
-                ]
-                found = False
-                for dir in start_menu_dirs:
-                    for root, dirs, files in os.walk(dir):
-                        for file in files:
-                            if file.lower().endswith('.lnk') and app_name in file.lower():
-                                shortcut_path = os.path.join(root, file)
-                                try:
-                                    os.startfile(shortcut_path)
-                                    reply = f"Opening {file[:-4]}!"
-                                    found = True
-                                    break
-                                except Exception as e:
-                                    reply = f"Sorry, I couldn't open {file[:-4]}. Error: {e}"
-                                    found = True
-                                    break
-                        if found:
-                            break
-                    if found:
-                        break
-                if not found:
-                    reply = f"Sorry, I couldn't find {app_name} installed on your system."
-            print(f"🤖 Buddy: {reply}")
-            speak_with_polly(reply)
-            continue
+
+    # ...Lex will now handle all 'open app' commands...
+
 
         # Find closest command
         matched_command = find_command(text, commands)
@@ -498,6 +494,100 @@ while True:
             reply = commands[matched_command]
             print(f"🤖 Buddy: {reply}")
             speak_with_polly(reply)
+        else:
+            # Use Lex as brain for general conversation and actions
+            lex_result = get_lex_response(text)
+            print("Lex full response:", lex_result)  # Debug print
+            lex_reply = lex_result['reply']
+            intent_name = lex_result['intent']
+            slots = lex_result['slots']
+
+            # Handle OpenApp intent
+            if intent_name == "OpenApp" and slots.get("AppName", {}).get("value"): 
+                app_name = slots["AppName"]["value"]["interpretedValue"].lower()
+                app_name_nospaces = app_name.replace(" ", "")
+                import subprocess, os, fnmatch
+                found = False
+                # Search Start Menu shortcuts with fuzzy matching
+                from difflib import get_close_matches
+                start_menu_dirs = [
+                    r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
+                    os.path.expanduser(r"~\AppData\Roaming\Microsoft\Windows\Start Menu\Programs")
+                ]
+                shortcut_files = []
+                for dir in start_menu_dirs:
+                    for root, dirs, files in os.walk(dir):
+                        for file in files:
+                            if file.lower().endswith('.lnk'):
+                                shortcut_files.append((file, os.path.join(root, file)))
+                shortcut_names = [file[0][:-4].lower() for file in shortcut_files]
+                match = get_close_matches(app_name, shortcut_names, n=1, cutoff=0.7)
+                if match:
+                    idx = shortcut_names.index(match[0])
+                    shortcut_path = shortcut_files[idx][1]
+                    try:
+                        os.startfile(shortcut_path)
+                        reply = f"okay buddy!"
+                        found = True
+                    except Exception as e:
+                        reply = f"Sorry, I couldn't open {match[0]}. Error: {e}"
+                        found = True
+                # If still not found, search Program Files for .exe
+                # If still not found, search Program Files for .exe
+                if not found:
+                    start_menu_dirs = [
+                        r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
+                        os.path.expanduser(r"~\AppData\Roaming\Microsoft\Windows\Start Menu\Programs")
+                    ]
+                    for dir in start_menu_dirs:
+                        for root, dirs, files in os.walk(dir):
+                            for file in files:
+                                if file.lower().endswith('.lnk') and app_name in file.lower():
+                                    shortcut_path = os.path.join(root, file)
+                                    try:
+                                        os.startfile(shortcut_path)
+                                        reply = f"okay buddy!"
+                                        found = True
+                                        break
+                                    except Exception as e:
+                                        reply = f"Sorry, I couldn't open {file[:-4]}. Error: {e}"
+                                        found = True
+                                        break
+                            if found:
+                                break
+                        if found:
+                            break
+                # If still not found, search Program Files for .exe
+                if not found:
+                    program_dirs = [
+                        r"C:\Program Files",
+                        r"C:\Program Files (x86)"
+                    ]
+                    exe_files = []
+                    for dir in program_dirs:
+                        for root, dirs, files in os.walk(dir):
+                            for file in files:
+                                if file.lower().endswith('.exe'):
+                                    exe_files.append((file, os.path.join(root, file)))
+                    exe_names = [file[0][:-4].lower().replace(" ", "") for file in exe_files]
+                    match = get_close_matches(app_name_nospaces, exe_names, n=1, cutoff=0.7)
+                    if match:
+                        idx = exe_names.index(match[0])
+                        exe_path = exe_files[idx][1]
+                        try:
+                            subprocess.Popen(exe_path)
+                            reply = f"okay buddy!"
+                            found = True
+                        except Exception as e:
+                            reply = f"Sorry, I couldn't open {exe_files[idx][0]}. Error: {e}"
+                            found = True
+                if not found:
+                    reply = f"Sorry, I couldn't find {app_name} installed on your system."
+                print(f"🤖 Buddy: {reply}")
+                speak_with_polly(reply)
+            else:
+                print(f"🤖 Buddy (Lex): {lex_reply}")
+                speak_with_polly(lex_reply)
 
     except KeyboardInterrupt:
         print("\n👋 Exiting Buddy...")
