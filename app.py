@@ -123,6 +123,7 @@ def index():
     running = buddy_process is not None and buddy_process.poll() is None
     return render_template_string(HTML, running=running)
 
+
 @app.route("/start", methods=["POST"])
 def start():
     global buddy_process
