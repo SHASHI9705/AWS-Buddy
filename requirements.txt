@@ -1,7 +1,6 @@
 flask
 boto3
 speechrecognition
-playsound
 python-dotenv
 pycaw
 comtypes
