@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment
+.env
+memory.json
+buddy_response.mp3
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Other
+*.sqlite3
+
+# Node (if any frontend)
+node_modules/
+
+# Render/Heroku
+*.pid
+
+# Test
+coverage/
+
+# Ignore commands.json if it contains secrets
+commands.json
