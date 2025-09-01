@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, request, redirect, url_for
+from flask import Flask, render_template_string, request, redirect, url_for, send_file
 import threading
 import subprocess
 import os
@@ -90,6 +90,17 @@ HTML = '''
         <div class="status">
             Status: <strong>{{ 'Running' if running else 'Stopped' }}</strong>
         </div>
+        <audio id="buddyAudio" src="/audio" style="width:100%;margin-top:20px;" controls></audio>
+        <script>
+            function playLatestAudio() {
+                var audio = document.getElementById('buddyAudio');
+                audio.src = '/audio?' + new Date().getTime(); // force reload
+                audio.load();
+                audio.play();
+            }
+            // Play audio automatically when page loads
+            window.onload = playLatestAudio;
+        </script>
         <div style="display:flex; justify-content:center; align-items:center; margin-top:38px; margin-bottom:10px;">
             <span style="display:inline-block; background:linear-gradient(90deg,#274472 0%,#1b263b 100%); color:#fff; font-size:1.18em; font-weight:700; letter-spacing:1.3px; border-radius:24px; padding:10px 32px; box-shadow:0 2px 12px #0d1b2a44;">
                 <svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' style='vertical-align:middle; margin-right:10px; margin-bottom:3px;'><circle cx='12' cy='12' r='12' fill='#7eb6ff'/><path d='M8 12h8M12 8v8' stroke='#fff' stroke-width='2' stroke-linecap='round'/></svg>
@@ -138,6 +149,13 @@ def stop():
         buddy_process.terminate()
         buddy_process = None
     return redirect(url_for('index'))
+
+@app.route("/audio")
+def audio():
+    audio_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "buddy_response.mp3")
+    if os.path.exists(audio_path):
+        return send_file(audio_path, mimetype="audio/mpeg")
+    return "No audio available", 404
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
