@@ -1,7 +1,9 @@
-from flask import Flask, render_template_string, request, redirect, url_for, send_file
+from flask import Flask, render_template_string, request, redirect, url_for, send_file, jsonify
 import threading
 import subprocess
 import os
+import sys
+from buddy import process_buddy_command
 
 app = Flask(__name__)
 
@@ -80,6 +82,7 @@ HTML = '''
     <div class="container">
         <h1>Control your system by commanding your "Buddy"</h1>
         <div class="button-row">
+            <button id="speakBtn" type="button" style="background:linear-gradient(90deg,#274472 0%,#1b263b 100%);color:#fff;">Speak</button>
             <form method="POST" action="/start" style="display:inline;">
                 <button type="submit" {% if running %}disabled{% endif %}>Start</button>
             </form>
@@ -87,10 +90,11 @@ HTML = '''
                 <button type="submit" {% if not running %}disabled{% endif %}>Stop</button>
             </form>
         </div>
+        <div id="spokenText" style="margin-bottom:10px;color:#274472;font-weight:600;"></div>
         <div class="status">
             Status: <strong>{{ 'Running' if running else 'Stopped' }}</strong>
         </div>
-        <audio id="buddyAudio" src="/audio" style="width:100%;margin-top:20px;" controls></audio>
+        <audio id="buddyAudio" src="/audio" style="display:none;"></audio>
         <script>
             function playLatestAudio() {
                 var audio = document.getElementById('buddyAudio');
@@ -100,6 +104,41 @@ HTML = '''
             }
             // Play audio automatically when page loads
             window.onload = playLatestAudio;
+
+            // Web Speech API for voice input
+            const speakBtn = document.getElementById('speakBtn');
+            const spokenTextDiv = document.getElementById('spokenText');
+            let recognition;
+            if ('webkitSpeechRecognition' in window) {
+                recognition = new webkitSpeechRecognition();
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.lang = 'en-IN';
+                speakBtn.onclick = function() {
+                    recognition.start();
+                    speakBtn.textContent = 'Listening...';
+                };
+                recognition.onresult = function(event) {
+                    const transcript = event.results[0][0].transcript;
+                    spokenTextDiv.textContent = 'You said: ' + transcript;
+                    speakBtn.textContent = 'Speak';
+                    // Send transcript to backend for processing
+                    fetch('/process', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: transcript })
+                    }).then(res => {
+                        // After backend processes, reload audio
+                        playLatestAudio();
+                    });
+                };
+                recognition.onerror = function() {
+                    speakBtn.textContent = 'Speak';
+                };
+            } else {
+                speakBtn.disabled = true;
+                speakBtn.textContent = 'Speech not supported';
+            }
         </script>
         <div style="display:flex; justify-content:center; align-items:center; margin-top:38px; margin-bottom:10px;">
             <span style="display:inline-block; background:linear-gradient(90deg,#274472 0%,#1b263b 100%); color:#fff; font-size:1.18em; font-weight:700; letter-spacing:1.3px; border-radius:24px; padding:10px 32px; box-shadow:0 2px 12px #0d1b2a44;">
@@ -156,6 +195,13 @@ def audio():
     if os.path.exists(audio_path):
         return send_file(audio_path, mimetype="audio/mpeg")
     return "No audio available", 404
+
+@app.route("/process", methods=["POST"])
+def process():
+    data = request.get_json()
+    user_text = data.get("text", "")
+    reply = process_buddy_command(user_text)
+    return jsonify({"status": "ok", "reply": reply})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)

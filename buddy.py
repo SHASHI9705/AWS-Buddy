@@ -4,8 +4,10 @@ import speech_recognition as sr
 import playsound
 import json
 import os
+
 from difflib import get_close_matches
 from dotenv import load_dotenv
+
 
 load_dotenv()
 LEX_BOT_ID = os.getenv("LEX_BOT_ID")
@@ -26,12 +28,10 @@ def save_memory(memory):
     with open(MEMORY_FILE, "w") as f:
         json.dump(memory, f, indent=4)
 
-
 memory = load_memory()
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-
 
 # Initialize AWS Polly
 polly = boto3.client(
@@ -50,6 +50,145 @@ lex_client = boto3.client(
 )
 
 recognizer = sr.Recognizer()
+
+# Real-time command processing for web
+def process_buddy_command(text):
+    global memory, commands
+    reply = None
+    # Memory: Save facts
+    if text.lower().startswith("my name is "):
+        name = text[11:].strip()
+        if name:
+            memory["name"] = name
+            save_memory(memory)
+            reply = f"Okay, I will remember your name is {name}."
+    elif text.lower().startswith("my favourite colour is "):
+        color = text[21:].strip()
+        if color:
+            memory["favorite_color"] = color
+            save_memory(memory)
+            reply = f"Got it, your favorite color is {color}."
+    elif text.lower().startswith("my birthday is "):
+        birthday = text[15:].strip()
+        if birthday:
+            memory["birthday"] = birthday
+            save_memory(memory)
+            reply = f"Okay, I will remember your birthday is {birthday}."
+    elif text.lower().startswith("my favorite food is "):
+        food = text[20:].strip()
+        if food:
+            memory["favorite_food"] = food
+            save_memory(memory)
+            reply = f"Got it, your favorite food is {food}."
+    elif text.lower().startswith("my pet's name is "):
+        pet_name = text[17:].strip()
+        if pet_name:
+            memory["pet_name"] = pet_name
+            save_memory(memory)
+            reply = f"I will remember your pet's name is {pet_name}."
+    # Memory: Recall facts
+    elif text.lower().strip() == "what is my name":
+        name = memory.get("name")
+        reply = f"Your name is {name}." if name else "I don't know your name yet."
+    elif text.lower().strip() == "what is my favourite colour":
+        color = memory.get("favorite_color")
+        reply = f"Your favourite colour is {color}." if color else "I don't know your favourite colour yet."
+    elif text.lower().strip() == "what is my birthday":
+        birthday = memory.get("birthday")
+        reply = f"Your birthday is {birthday}." if birthday else "I don't know your birthday yet."
+    elif text.lower().strip() == "what is my favorite food":
+        food = memory.get("favorite_food")
+        reply = f"Your favorite food is {food}." if food else "I don't know your favorite food yet."
+    elif text.lower().strip() == "what is my pet's name":
+        pet_name = memory.get("pet_name")
+        reply = f"Your pet's name is {pet_name}." if pet_name else "I don't know your pet's name yet."
+    # Find closest command
+    elif find_command(text, commands):
+        reply = commands[find_command(text, commands)]
+    else:
+        # Use Lex as brain for general conversation and actions
+        lex_result = get_lex_response(text)
+        lex_reply = lex_result['reply']
+        intent_name = lex_result['intent']
+        slots = lex_result['slots']
+        # Handle OpenApp intent
+        if intent_name == "OpenApp" and slots.get("AppName", {}).get("value"):
+            app_name = slots["AppName"]["value"]["interpretedValue"].lower()
+            app_name_nospaces = app_name.replace(" ", "")
+            import subprocess, os, fnmatch
+            found = False
+            from difflib import get_close_matches
+            start_menu_dirs = [
+                r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
+                os.path.expanduser(r"~\AppData\Roaming\Microsoft\Windows\Start Menu\Programs")
+            ]
+            shortcut_files = []
+            for dir in start_menu_dirs:
+                for root, dirs, files in os.walk(dir):
+                    for file in files:
+                        if file.lower().endswith('.lnk'):
+                            shortcut_files.append((file, os.path.join(root, file)))
+            shortcut_names = [file[0][:-4].lower() for file in shortcut_files]
+            match = get_close_matches(app_name, shortcut_names, n=1, cutoff=0.7)
+            if match:
+                idx = shortcut_names.index(match[0])
+                shortcut_path = shortcut_files[idx][1]
+                try:
+                    os.startfile(shortcut_path)
+                    reply = f"okay buddy!"
+                    found = True
+                except Exception as e:
+                    reply = f"Sorry, I couldn't open {match[0]}. Error: {e}"
+                    found = True
+            if not found:
+                for dir in start_menu_dirs:
+                    for root, dirs, files in os.walk(dir):
+                        for file in files:
+                            if file.lower().endswith('.lnk') and app_name in file.lower():
+                                shortcut_path = os.path.join(root, file)
+                                try:
+                                    os.startfile(shortcut_path)
+                                    reply = f"okay buddy!"
+                                    found = True
+                                    break
+                                except Exception as e:
+                                    reply = f"Sorry, I couldn't open {file[:-4]}. Error: {e}"
+                                    found = True
+                                    break
+                        if found:
+                            break
+                    if found:
+                        break
+            if not found:
+                program_dirs = [
+                    r"C:\Program Files",
+                    r"C:\Program Files (x86)"
+                ]
+                exe_files = []
+                for dir in program_dirs:
+                    for root, dirs, files in os.walk(dir):
+                        for file in files:
+                            if file.lower().endswith('.exe'):
+                                exe_files.append((file, os.path.join(root, file)))
+                exe_names = [file[0][:-4].lower().replace(" ", "") for file in exe_files]
+                match = get_close_matches(app_name_nospaces, exe_names, n=1, cutoff=0.7)
+                if match:
+                    idx = exe_names.index(match[0])
+                    exe_path = exe_files[idx][1]
+                    try:
+                        subprocess.Popen(exe_path)
+                        reply = f"okay buddy!"
+                        found = True
+                    except Exception as e:
+                        reply = f"Sorry, I couldn't open {exe_files[idx][0]}. Error: {e}"
+                        found = True
+            if not found:
+                reply = f"Sorry, I couldn't find {app_name} installed on your system."
+        else:
+            reply = lex_reply
+    # Generate audio response
+    speak_with_polly(reply or "Sorry, I didn't understand that.")
+    return reply or "Sorry, I didn't understand that."
 def get_lex_response(user_text, session_id="buddy-session"):
     try:
         response = lex_client.recognize_text(
@@ -152,134 +291,33 @@ while True:
                 speak_with_polly(reply)
                 continue
 
-        if text.lower().startswith("my favorite food is "):
-            food = text[20:].strip()
-            if food:
-                memory["favorite_food"] = food
-                save_memory(memory)
-                reply = f"Got it, your favorite food is {food}."
-                print(f"🤖 Buddy: {reply}")
-                speak_with_polly(reply)
-                continue
 
-        if text.lower().startswith("my pet's name is "):
-            pet_name = text[17:].strip()
-            if pet_name:
-                memory["pet_name"] = pet_name
-                save_memory(memory)
-                reply = f"I will remember your pet's name is {pet_name}."
-                print(f"🤖 Buddy: {reply}")
-                speak_with_polly(reply)
-                continue
+        if __name__ == "__main__":
+            # Greet the user
+            intro_message = "Hey, I am your Buddy. Just tell me what to do!"
+            print(intro_message)
+            speak_with_polly(intro_message)
 
-        # Memory: Recall facts
-        if text.lower().strip() == "what is my name":
-            name = memory.get("name")
-            if name:
-                reply = f"Your name is {name}."
-            else:
-                reply = "I don't know your name yet."
-            print(f"🤖 Buddy: {reply}")
-            speak_with_polly(reply)
-            continue
+            typing_mode = False
+            last_typed_sentence = ""
 
-        if text.lower().strip() == "what is my favourite colour":
-            color = memory.get("favorite_color")
-            if color:
-                reply = f"Your favourite colour is {color}."
-            else:
-                reply = "I don't know your favourite colour yet."
-            print(f"🤖 Buddy: {reply}")
-            speak_with_polly(reply)
-            continue
+            while True:
+                try:
+                    with sr.Microphone() as source:
+                        recognizer.adjust_for_ambient_noise(source, duration=1)  # noise reduction
+                        print("🎙️ Listening...")
+                        audio = recognizer.listen(source)
 
-        if text.lower().strip() == "what is my birthday":
-            birthday = memory.get("birthday")
-            if birthday:
-                reply = f"Your birthday is {birthday}."
-            else:
-                reply = "I don't know your birthday yet."
-            print(f"🤖 Buddy: {reply}")
-            speak_with_polly(reply)
-            continue
+                    text = recognizer.recognize_google(audio, language="en-IN")
+                    print("✅ You said:", text)
 
-        if text.lower().strip() == "what is my favorite food":
-            food = memory.get("favorite_food")
-            if food:
-                reply = f"Your favorite food is {food}."
-            else:
-                reply = "I don't know your favorite food yet."
-            print(f"🤖 Buddy: {reply}")
-            speak_with_polly(reply)
-            continue
+                    # ...existing code for all commands and features...
 
-        if text.lower().strip() == "what is my pet's name":
-            pet_name = memory.get("pet_name")
-            if pet_name:
-                reply = f"Your pet's name is {pet_name}."
-            else:
-                reply = "I don't know your pet's name yet."
-            print(f"🤖 Buddy: {reply}")
-            speak_with_polly(reply)
-            continue
-
-        # Volume control
-        if text.lower().strip() in ["increase volume", "volume up"]:
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(
-                IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
-            current = volume.GetMasterVolumeLevelScalar()
-            new_vol = min(current + 0.1, 1.0)
-            volume.SetMasterVolumeLevelScalar(new_vol, None)
-            reply = f"Volume increased to {int(new_vol*100)}%."
-            print(f"🤖 Buddy: {reply}")
-            speak_with_polly(reply)
-            continue
-
-        if text.lower().strip() in ["decrease volume", "volume down"]:
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(
-                IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
-            current = volume.GetMasterVolumeLevelScalar()
-            new_vol = max(current - 0.1, 0.0)
-            volume.SetMasterVolumeLevelScalar(new_vol, None)
-            reply = f"Volume decreased to {int(new_vol*100)}%."
-            print(f"🤖 Buddy: {reply}")
-            speak_with_polly(reply)
-            continue
-
-        if text.lower().strip() == "mute":
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(
-                IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
-            volume.SetMute(1, None)
-            reply = "Volume muted."
-            print(f"🤖 Buddy: {reply}")
-            speak_with_polly(reply)
-            continue
-
-        if text.lower().strip() == "unmute":
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(
-                IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
-            volume.SetMute(0, None)
-            reply = "Volume unmuted."
-            print(f"🤖 Buddy: {reply}")
-            speak_with_polly(reply)
-            continue
-
-        # Close current tab in Chrome
-        if text.lower().strip() == "close it":
-            import pyautogui
-            pyautogui.hotkey('ctrl', 'w')
-            continue
-
-        # Open new tab in Chrome
-        if text.lower().strip() == "open new tab":
+                except KeyboardInterrupt:
+                    print("\n👋 Exiting Buddy...")
+                    break
+                except Exception as e:
+                    print("❌ Error:", e)
             import pyautogui
             pyautogui.hotkey('ctrl', 't')
             continue
